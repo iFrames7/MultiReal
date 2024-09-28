@@ -6,6 +6,8 @@
 
 AMultiRealProjectile::AMultiRealProjectile() 
 {
+	SetReplicates(true);
+	
 	// Use a sphere as a simple collision representation
 	CollisionComp = CreateDefaultSubobject<USphereComponent>(TEXT("SphereComp"));
 	CollisionComp->InitSphereRadius(5.0f);
