@@ -65,6 +65,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = Weapon)
 	bool GetHasRifle();
 
+	UFUNCTION(BlueprintCallable)
+	void FireBullet(FVector MuzzleOffset, UWorld* World, TSubclassOf<class AMultiRealProjectile> ProjectileClass);
+	
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_FireBullet(FVector SpawnLocation, FRotator SpawnRotation, TSubclassOf<class AMultiRealProjectile> ProjectileClass);
+
 protected:
 	/** Called for movement input */
 	void Move(const FInputActionValue& Value);

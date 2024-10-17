@@ -18,7 +18,7 @@ DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
 AMultiRealCharacter::AMultiRealCharacter()
 {
-	// Character doesnt have a rifle at start
+	// Character doesn't have a rifle at start
 	bHasRifle = false;
 	
 	// Set size for collision capsule
@@ -115,4 +115,46 @@ void AMultiRealCharacter::SetHasRifle(bool bNewHasRifle)
 bool AMultiRealCharacter::GetHasRifle()
 {
 	return bHasRifle;
+}
+
+void AMultiRealCharacter::FireBullet(FVector MuzzleOffset, UWorld* World, TSubclassOf<class AMultiRealProjectile> ProjectileClass)
+{
+	APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	const FRotator SpawnRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
+	// MuzzleOffset is in camera space, so transform it to world space before offsetting from the character location to find the final muzzle position
+	const FVector SpawnLocation = GetActorLocation() + SpawnRotation.RotateVector(MuzzleOffset);
+
+	// //Set Spawn Collision Handling Override
+	// FActorSpawnParameters ActorSpawnParams;
+	// ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
+	//
+	// // Spawn the projectile at the muzzle
+	// World->SpawnActor<AMultiRealProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
+
+	if (!HasAuthority())
+	{
+		Server_FireBullet(SpawnLocation, SpawnRotation, ProjectileClass);
+	}
+	else
+	{
+		//Set Spawn Collision Handling Override
+		FActorSpawnParameters ActorSpawnParams;
+		ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
+		
+		// Spawn the projectile at the muzzle
+		World->SpawnActor<AMultiRealProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
+	}
+}
+
+void AMultiRealCharacter::Server_FireBullet_Implementation(FVector SpawnLocation, FRotator SpawnRotation, TSubclassOf<class AMultiRealProjectile> ProjectileClass)
+{
+	FActorSpawnParameters ActorSpawnParams;
+	ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
+	
+	GetWorld()->SpawnActor<AMultiRealProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
+}
+
+bool AMultiRealCharacter::Server_FireBullet_Validate(FVector SpawnLocation, FRotator SpawnRotation, TSubclassOf<class AMultiRealProjectile> ProjectileClass)
+{
+	return true;
 }
