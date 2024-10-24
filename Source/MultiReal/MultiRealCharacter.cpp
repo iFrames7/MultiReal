@@ -54,7 +54,19 @@ void AMultiRealCharacter::BeginPlay()
 			Subsystem->AddMappingContext(DefaultMappingContext, 0);
 		}
 	}
+}
 
+void AMultiRealCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	if (!IsLocallyControlled())
+	{
+		FRotator newRotation = FirstPersonCameraComponent->GetRelativeRotation();
+		newRotation.Pitch = RemoteViewPitch * 360.0f / 255.0f;
+
+		FirstPersonCameraComponent->SetRelativeRotation(newRotation);
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////// Input
