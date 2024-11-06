@@ -10,6 +10,8 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "Engine/LocalPlayer.h"
+#include "Net/UnrealNetwork.h"
+#include "Engine/Engine.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
@@ -39,6 +41,17 @@ AMultiRealCharacter::AMultiRealCharacter()
 	//Mesh1P->SetRelativeRotation(FRotator(0.9f, -19.19f, 5.2f));
 	Mesh1P->SetRelativeLocation(FVector(-30.f, 0.f, -150.f));
 
+	//Initialize the player's Health
+	MaxHealth = 100.0f;
+	CurrentHealth = MaxHealth;
+}
+
+void AMultiRealCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	//Replicate current health
+	DOREPLIFETIME(AMultiRealCharacter, CurrentHealth);
 }
 
 void AMultiRealCharacter::BeginPlay()
@@ -67,6 +80,57 @@ void AMultiRealCharacter::Tick(float DeltaSeconds)
 
 		FirstPersonCameraComponent->SetRelativeRotation(newRotation);
 	}
+}
+
+//////////////////////////////////////////////////////////////////////////// Health
+
+void AMultiRealCharacter::OnRep_CurrentHealth()
+{
+	OnHealthUpdate();
+}
+
+void AMultiRealCharacter::OnHealthUpdate()
+{
+	//Client-specific functionality
+	if (IsLocallyControlled())
+	{
+		FString healthMessage = FString::Printf(TEXT("You now have %f health remaining."), CurrentHealth);
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, healthMessage);
+ 
+		if (CurrentHealth <= 0)
+		{
+			FString deathMessage = FString::Printf(TEXT("You have been killed."));
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, deathMessage);
+		}
+	}
+ 
+	//Server-specific functionality
+	if (HasAuthority())
+	{
+		FString healthMessage = FString::Printf(TEXT("%s now has %f health remaining."), *GetFName().ToString(), CurrentHealth);
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, healthMessage);
+	}
+ 
+	//Functions that occur on all machines.
+	/*
+		Any special functionality that should occur as a result of damage or death should be placed here.
+	*/
+}
+
+void AMultiRealCharacter::SetCurrentHealth(float healthValue)
+{
+	if (HasAuthority())
+	{
+		CurrentHealth = FMath::Clamp(healthValue, 0.f, MaxHealth);
+		OnHealthUpdate();
+	}
+}
+
+float AMultiRealCharacter::TakeDamage(float DamageTaken, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+{
+	float damageApplied = CurrentHealth - DamageTaken;
+	SetCurrentHealth(damageApplied);
+	return damageApplied;
 }
 
 //////////////////////////////////////////////////////////////////////////// Input
@@ -129,44 +193,69 @@ bool AMultiRealCharacter::GetHasRifle()
 	return bHasRifle;
 }
 
-void AMultiRealCharacter::FireBullet(FVector MuzzleOffset, UWorld* World, TSubclassOf<class AMultiRealProjectile> ProjectileClass)
+void AMultiRealCharacter::FirePressed()
 {
-	APlayerController* PlayerController = Cast<APlayerController>(GetController());
-	const FRotator SpawnRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
-	// MuzzleOffset is in camera space, so transform it to world space before offsetting from the character location to find the final muzzle position
-	const FVector SpawnLocation = GetActorLocation() + SpawnRotation.RotateVector(MuzzleOffset);
-
-	// //Set Spawn Collision Handling Override
-	// FActorSpawnParameters ActorSpawnParams;
-	// ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
-	//
-	// // Spawn the projectile at the muzzle
-	// World->SpawnActor<AMultiRealProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
-
-	if (!HasAuthority())
-	{
-		Server_FireBullet(SpawnLocation, SpawnRotation, ProjectileClass);
-	}
-	else
-	{
-		//Set Spawn Collision Handling Override
-		FActorSpawnParameters ActorSpawnParams;
-		ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
-		
-		// Spawn the projectile at the muzzle
-		World->SpawnActor<AMultiRealProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
-	}
+	ServerFireAction();
 }
 
-void AMultiRealCharacter::Server_FireBullet_Implementation(FVector SpawnLocation, FRotator SpawnRotation, TSubclassOf<class AMultiRealProjectile> ProjectileClass)
+void AMultiRealCharacter::ServerFireAction_Implementation()
 {
-	FActorSpawnParameters ActorSpawnParams;
-	ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
+	OnFire.Broadcast();	
+}
+
+void AMultiRealCharacter::AttachedWeapon()
+{
+	SetHasRifle(true);
 	
-	GetWorld()->SpawnActor<AMultiRealProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
+	// Set up action bindings
+	if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+		{
+			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
+			Subsystem->AddMappingContext(FireMappingContext, 1);
+		}
+
+		if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerController->InputComponent))
+		{
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &ThisClass::FirePressed);	
+		}
+	}
 }
 
-bool AMultiRealCharacter::Server_FireBullet_Validate(FVector SpawnLocation, FRotator SpawnRotation, TSubclassOf<class AMultiRealProjectile> ProjectileClass)
-{
-	return true;
-}
+// void AMultiRealCharacter::FireBullet(FVector MuzzleOffset, UWorld* World, TSubclassOf<class AMultiRealProjectile> ProjectileClass)
+// {
+// 	APlayerController* PlayerController = Cast<APlayerController>(GetController());
+// 	const FRotator SpawnRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
+// 	// MuzzleOffset is in camera space, so transform it to world space before offsetting from the character location to find the final muzzle position
+// 	const FVector SpawnLocation = GetActorLocation() + SpawnRotation.RotateVector(MuzzleOffset);
+//
+// 	// //Set Spawn Collision Handling Override
+// 	// FActorSpawnParameters ActorSpawnParams;
+// 	// ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
+// 	//
+// 	// // Spawn the projectile at the muzzle
+// 	// World->SpawnActor<AMultiRealProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
+//
+// 	if (!HasAuthority())
+// 	{
+// 		Server_FireBullet(SpawnLocation, SpawnRotation, ProjectileClass);
+// 	}
+// 	else
+// 	{
+// 		//Set Spawn Collision Handling Override
+// 		FActorSpawnParameters ActorSpawnParams;
+// 		ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
+// 		
+// 		// Spawn the projectile at the muzzle
+// 		World->SpawnActor<AMultiRealProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
+// 	}
+// }
+//
+// void AMultiRealCharacter::Server_FireBullet_Implementation(FVector SpawnLocation, FRotator SpawnRotation, TSubclassOf<class AMultiRealProjectile> ProjectileClass)
+// {
+// 	FActorSpawnParameters ActorSpawnParams;
+// 	ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
+// 	
+// 	GetWorld()->SpawnActor<AMultiRealProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
+// }
