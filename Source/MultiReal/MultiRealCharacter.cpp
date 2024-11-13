@@ -89,7 +89,7 @@ void AMultiRealCharacter::OnRep_CurrentHealth()
 	OnHealthUpdate();
 }
 
-void AMultiRealCharacter::OnHealthUpdate()
+void AMultiRealCharacter::OnHealthUpdate_Implementation()
 {
 	//Client-specific functionality
 	if (IsLocallyControlled())
