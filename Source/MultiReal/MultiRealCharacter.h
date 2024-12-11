@@ -3,8 +3,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "OnlineSubsystem.h"
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
+#include "Interfaces/OnlineSessionDelegates.h"
 #include "MultiRealCharacter.generated.h"
 
 class UInputComponent;
@@ -80,6 +82,12 @@ protected:
 	virtual void SetupPlayerInputComponent(UInputComponent* InputComponent) override;
 	// End of APawn interface
 
+	//////////////////////////////////////////////////Online Subsystem
+	UFUNCTION(BlueprintCallable)
+	void CreateGameSession();
+
+	void OnCreateSessionComplete(FName SessionName, bool bWasSuccessful);
+
 public:
 	//////////////////////////////////////////////////Skeletal and camera
 	/** Returns Mesh1P subobject **/
@@ -146,5 +154,13 @@ public:
 	/** Event for taking damage. Overridden from APawn.*/
 	UFUNCTION(BlueprintCallable, Category = "Health")
 	float TakeDamage(float DamageTaken, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
+
+	//////////////////////////////////////////////////Online Subsystem
+	IOnlineSessionPtr OnlineSessionInterface;
+
+	TSharedPtr<FOnlineSessionSettings> SessionSettings;
+
+private:
+	FOnCreateSessionCompleteDelegate CreateSessionCompleteDelegate;
 };
 

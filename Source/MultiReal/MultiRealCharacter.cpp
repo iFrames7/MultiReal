@@ -12,13 +12,18 @@
 #include "Engine/LocalPlayer.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/Engine.h"
+#include "OnlineSubsystem.h"
+#include "OnlineSubsystemUtils.h"
+#include "Interfaces/OnlineSessionInterface.h"
+#include "OnlineSessionSettings.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
 //////////////////////////////////////////////////////////////////////////
 // AMultiRealCharacter
 
-AMultiRealCharacter::AMultiRealCharacter()
+AMultiRealCharacter::AMultiRealCharacter():
+	CreateSessionCompleteDelegate(FOnCreateSessionCompleteDelegate::CreateUObject(this, &ThisClass::OnCreateSessionComplete))
 {
 	// Character doesn't have a rifle at start
 	bHasRifle = false;
@@ -44,6 +49,18 @@ AMultiRealCharacter::AMultiRealCharacter()
 	//Initialize the player's Health
 	MaxHealth = 100.0f;
 	CurrentHealth = MaxHealth;
+	
+	//Online Subsystem
+	IOnlineSubsystem* OnlineSubsystem = Online::GetSubsystem(GetWorld());
+
+	if (OnlineSubsystem)
+	{
+		OnlineSessionInterface = OnlineSubsystem->GetSessionInterface();
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Purple, FString::Printf(TEXT("Online Subsystem %s"), *OnlineSubsystem->GetOnlineServiceName().ToString()));
+		}
+	}
 }
 
 void AMultiRealCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -79,6 +96,57 @@ void AMultiRealCharacter::Tick(float DeltaSeconds)
 		newRotation.Pitch = RemoteViewPitch * 360.0f / 255.0f;
 
 		FirstPersonCameraComponent->SetRelativeRotation(newRotation);
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////// Online Subsystem
+
+void AMultiRealCharacter::CreateGameSession()
+{
+	//Create Session when key press 1
+	if (OnlineSessionInterface == nullptr)
+		return; 
+
+	FNamedOnlineSession* ExistingSession = OnlineSessionInterface->GetNamedSession(NAME_GameSession);
+
+	if (ExistingSession != nullptr)
+	{
+		OnlineSessionInterface->DestroySession(NAME_GameSession);
+	}
+
+	OnlineSessionInterface->AddOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegate);
+
+	SessionSettings = MakeShareable(new FOnlineSessionSettings());
+	
+	SessionSettings->bIsLANMatch = false;
+	SessionSettings->NumPublicConnections = 4;
+	SessionSettings->bAllowJoinInProgress = true;
+	SessionSettings->bAllowJoinInProgress = true;
+	SessionSettings->bShouldAdvertise = true;
+	SessionSettings->bUsesPresence = true;
+
+	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
+	
+	OnlineSessionInterface->CreateSession(*LocalPlayer->GetPreferredUniqueNetId(), NAME_GameSession, *SessionSettings);
+}
+
+void AMultiRealCharacter::OnCreateSessionComplete(FName SessionName, bool bWasSuccessful)
+{
+	if (bWasSuccessful)
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				-1, 15.f, FColor::Emerald, FString::Printf(TEXT("Created session %s successfully"), *SessionName.ToString()));
+		}
+	}
+	else
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				-1, 15.f, FColor::Red, FString::Printf(TEXT("Failed to create session")));
+		}
 	}
 }
 
@@ -155,7 +223,6 @@ void AMultiRealCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInput
 		UE_LOG(LogTemplateCharacter, Error, TEXT("'%s' Failed to find an Enhanced Input Component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
 	}
 }
-
 
 void AMultiRealCharacter::Move(const FInputActionValue& Value)
 {
