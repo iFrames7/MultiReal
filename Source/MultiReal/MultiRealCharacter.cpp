@@ -16,6 +16,8 @@
 #include "OnlineSubsystemUtils.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "OnlineSessionSettings.h"
+#include "Online/OnlineSessionNames.h"
+#include "Runtime/Online/XMPP/Public/XmppPresence.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
@@ -23,7 +25,9 @@ DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 // AMultiRealCharacter
 
 AMultiRealCharacter::AMultiRealCharacter():
-	CreateSessionCompleteDelegate(FOnCreateSessionCompleteDelegate::CreateUObject(this, &ThisClass::OnCreateSessionComplete))
+	CreateSessionCompleteDelegate(FOnCreateSessionCompleteDelegate::CreateUObject(this, &ThisClass::OnCreateSessionComplete)),
+	FindSessionsCompleteDelegate(FOnFindSessionsCompleteDelegate::CreateUObject(this, &ThisClass::OnFindSessionsComplete)),
+	JoinSessionCompleteDelegate(FOnJoinSessionCompleteDelegate::CreateUObject(this, &ThisClass::OnJoinSessionComplete))
 {
 	// Character doesn't have a rifle at start
 	bHasRifle = false;
@@ -121,13 +125,30 @@ void AMultiRealCharacter::CreateGameSession()
 	SessionSettings->bIsLANMatch = false;
 	SessionSettings->NumPublicConnections = 4;
 	SessionSettings->bAllowJoinInProgress = true;
-	SessionSettings->bAllowJoinInProgress = true;
+	SessionSettings->bAllowJoinViaPresence = true;
 	SessionSettings->bShouldAdvertise = true;
 	SessionSettings->bUsesPresence = true;
+	SessionSettings->bUseLobbiesIfAvailable = false;
+	SessionSettings->Set(FName("MatchType"), FString("Flag"), EOnlineDataAdvertisementType::ViaOnlineService);
 
 	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
-	
 	OnlineSessionInterface->CreateSession(*LocalPlayer->GetPreferredUniqueNetId(), NAME_GameSession, *SessionSettings);
+}
+
+void AMultiRealCharacter::JoinGameSession()
+{
+	if (!OnlineSessionInterface.IsValid())
+		return;
+
+	OnlineSessionInterface->AddOnFindSessionsCompleteDelegate_Handle(FindSessionsCompleteDelegate);
+
+	SessionSearch = MakeShareable(new FOnlineSessionSearch());
+	SessionSearch->MaxSearchResults = 1000;
+	SessionSearch->bIsLanQuery = false;
+	SessionSearch->QuerySettings.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
+
+	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
+	OnlineSessionInterface->FindSessions(*LocalPlayer->GetPreferredUniqueNetId(), SessionSearch.ToSharedRef());
 }
 
 void AMultiRealCharacter::OnCreateSessionComplete(FName SessionName, bool bWasSuccessful)
@@ -139,6 +160,10 @@ void AMultiRealCharacter::OnCreateSessionComplete(FName SessionName, bool bWasSu
 			GEngine->AddOnScreenDebugMessage(
 				-1, 15.f, FColor::Emerald, FString::Printf(TEXT("Created session %s successfully"), *SessionName.ToString()));
 		}
+
+		UWorld* World = GetWorld();
+		if (World)
+			World->ServerTravel(FString("/Game/FirstPerson/Maps/Lobby?Listen"));
 	}
 	else
 	{
@@ -146,6 +171,61 @@ void AMultiRealCharacter::OnCreateSessionComplete(FName SessionName, bool bWasSu
 		{
 			GEngine->AddOnScreenDebugMessage(
 				-1, 15.f, FColor::Red, FString::Printf(TEXT("Failed to create session")));
+		}
+	}
+}
+
+void AMultiRealCharacter::OnFindSessionsComplete(bool bWasSuccessful)
+{
+	for (FOnlineSessionSearchResult Result: SessionSearch->SearchResults)
+	{
+		FString Id = Result.GetSessionIdStr();
+		FString User = Result.Session.OwningUserName;
+		FString MatchType;
+		Result.Session.SessionSettings.Get(FName("MatchType"), MatchType);
+		
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				-1, 15.f, FColor::Orange, FString::Printf(TEXT("FOUND SESSION Id: %s, User: %s"), *Id, *User));
+		}
+
+		if (MatchType == FString("Flag"))
+		{
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(
+					-1, 15.f, FColor::Orange, FString::Printf(TEXT("Match Type: %s"), *MatchType));
+			}
+
+			OnlineSessionInterface->AddOnJoinSessionCompleteDelegate_Handle(JoinSessionCompleteDelegate);
+			
+			const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
+			OnlineSessionInterface->JoinSession(*LocalPlayer->GetPreferredUniqueNetId(), NAME_GameSession, Result);
+		}
+	}
+}
+
+void AMultiRealCharacter::OnJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result)
+{
+	if (!OnlineSessionInterface.IsValid())
+		return;
+
+	FString Address;
+
+	if (OnlineSessionInterface->GetResolvedConnectString(NAME_GameSession, Address))
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				-1, 15.f, FColor::Orange, FString::Printf(TEXT("Address: %s"), *Address));
+		}
+		
+		APlayerController* PlayerController = GetGameInstance()->GetFirstLocalPlayerController();
+
+		if (PlayerController)
+		{
+			PlayerController->ClientTravel(Address, TRAVEL_Absolute);
 		}
 	}
 }

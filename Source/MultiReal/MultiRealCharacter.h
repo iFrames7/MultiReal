@@ -7,6 +7,7 @@
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
 #include "Interfaces/OnlineSessionDelegates.h"
+#include "Interfaces/OnlineSessionInterface.h"
 #include "MultiRealCharacter.generated.h"
 
 class UInputComponent;
@@ -86,7 +87,13 @@ protected:
 	UFUNCTION(BlueprintCallable)
 	void CreateGameSession();
 
+	UFUNCTION(BlueprintCallable)
+	void JoinGameSession();
+
+	//Callbacks
 	void OnCreateSessionComplete(FName SessionName, bool bWasSuccessful);
+	void OnFindSessionsComplete(bool bWasSuccessful);
+	void OnJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result);
 
 public:
 	//////////////////////////////////////////////////Skeletal and camera
@@ -160,7 +167,13 @@ public:
 
 	TSharedPtr<FOnlineSessionSettings> SessionSettings;
 
+	TSharedPtr<FOnlineSessionSearch> SessionSearch;
+
 private:
 	FOnCreateSessionCompleteDelegate CreateSessionCompleteDelegate;
+	
+	FOnFindSessionsCompleteDelegate FindSessionsCompleteDelegate;
+
+	FOnJoinSessionCompleteDelegate JoinSessionCompleteDelegate;
 };
 
