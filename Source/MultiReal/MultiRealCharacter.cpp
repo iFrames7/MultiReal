@@ -17,7 +17,7 @@
 #include "Interfaces/OnlineSessionInterface.h"
 #include "OnlineSessionSettings.h"
 #include "Online/OnlineSessionNames.h"
-#include "Runtime/Online/XMPP/Public/XmppPresence.h"
+// #include "Runtime/Online/XMPP/Public/XmppPresence.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
